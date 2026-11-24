@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stark-studio"
+version = "0.1.0"
+description = "CAD (STEP) -> assembly steps -> .stark package for AR glasses"
+requires-python = ">=3.11"
+dependencies = [
+  "cadquery-ocp>=7.7",
+  "numpy",
+  "trimesh>=4",
+  "python-fcl>=0.7",
+  "fast-simplification",
+  "scipy",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "python-multipart",
+  "anthropic>=0.50",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[project.scripts]
+stark-studio = "stark_studio.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["stark_studio*"]
+
+[tool.setuptools.package-data]
+stark_studio = ["editor/*", "editor/vendor/*", "editor/vendor/addons/*/*"]

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stark Studio</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+    "three": "./vendor/three.module.min.js",
+    "three/addons/": "./vendor/addons/"
+} }
+</script>
+</head>
+<body>
+<header>
+  <div class="brand">Stark <span>Studio</span></div>
+  <select id="projectSelect" title="Проект"><option value="">— проект —</option></select>
+  <label class="btn" title="Загрузить STEP-сборку">Загрузить STEP
+    <input id="fileInput" type="file" accept=".step,.stp" hidden>
+  </label>
+  <select id="upAxis" title="Какая ось в CAD направлена вверх"><option value="Z">Z вверх</option><option value="Y">Y вверх</option></select>
+  <button id="sampleBtn" class="ghost">Тестовая сборка</button>
+  <div class="spacer"></div>
+  <button id="saveBtn" disabled>Сохранить</button>
+  <button id="hintsBtn" disabled title="Сгенерировать подсказки (LLM, если задан ANTHROPIC_API_KEY, иначе шаблон)">Подсказки</button>
+  <select id="hintLang" title="Язык подсказок"><option>ru</option><option>kk</option><option>en</option></select>
+  <button id="replanBtn" class="ghost" disabled title="Заново рассчитать шаги из CAD">Перепланировать</button>
+  <button id="exportBtn" class="primary" disabled>Экспорт .stark</button>
+</header>
+
+<main>
+  <aside id="stepsPane">
+    <div class="pane-title">Шаги сборки <span id="stepCount"></span></div>
+    <ol id="stepList"></ol>
+    <div class="hint-text">Перетаскивайте шаги, чтобы изменить порядок.</div>
+  </aside>
+
+  <section id="viewerPane">
+    <div id="viewer"></div>
+    <div id="emptyState">
+      <h2>Загрузите STEP-сборку</h2>
+      <p>Studio разберёт дерево деталей, предложит порядок сборки и подготовит пакет <b>.stark</b> для очков.
+         Файл обрабатывается только на этом компьютере.</p>
+      <p><button id="sampleBtn2" class="primary">Открыть тестовую сборку</button></p>
+    </div>
+    <div id="busy" hidden><div class="spinner"></div><span id="busyText">Обработка…</span></div>
+    <div id="playerBar">
+      <button id="prevBtn" title="Предыдущий шаг">◀</button>
+      <button id="playBtn" title="Проиграть все шаги">▶ Проиграть</button>
+      <button id="nextBtn" title="Следующий шаг">▶</button>
+      <span id="stepLabel"></span>
+      <label>Разлёт <input id="explode" type="range" min="0" max="1" step="0.01" value="0"></label>
+      <label><input id="hideFuture" type="checkbox"> скрыть будущие</label>
+    </div>
+  </section>
+
+  <aside id="detailPane">
+    <div class="pane-title">Шаг <span id="detailId"></span></div>
+    <div id="detail"></div>
+  </aside>
+</main>
+
+<footer>
+  <span id="stats"></span>
+  <span id="status"></span>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

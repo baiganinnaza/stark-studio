@@ -1,0 +1,8 @@
+services:
+  studio:
+    build: ./studio
+    # Порт открыт только на этом компьютере: CAD заказчика не уходит в сеть
+    ports: ["127.0.0.1:8040:8040"]
+    volumes: ["./workspace:/data/projects"]
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
