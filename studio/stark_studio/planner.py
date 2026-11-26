@@ -34,6 +34,7 @@ class PlanResult:
 class CollisionWorld:
     def __init__(self, geoms: dict[str, PartGeom], tol: float):
         self.geoms = geoms
+        self.ignore: set[frozenset] = set()
         self.objs = {}
         for pid, g in geoms.items():
             if len(g.faces) == 0:
@@ -102,7 +103,10 @@ def removable(world: CollisionWorld, pid: str, remaining: list[str], d: np.ndarr
     dist = _escape_distance(ga, others, d, margin)
     # широкая фаза: кто вообще попадает в заметаемый объём
     swept = np.array([np.minimum(ga.aabb[0], ga.aabb[0] + d * dist), np.maximum(ga.aabb[1], ga.aabb[1] + d * dist)])
-    cand = [o for o in remaining if o != pid and _aabb_overlap(swept, world.geoms[o].aabb, 1e-6)]
+    # пары, которые пересекаются уже в собранном виде (зацепление шестерён, запрессовка, неточный CAD),
+    # между собой не проверяем: иначе ни одну из них нельзя снять. Такие шаги помечаются «проверить».
+    cand = [o for o in remaining if o != pid and frozenset((pid, o)) not in world.ignore
+            and _aabb_overlap(swept, world.geoms[o].aabb, 1e-6)]
     if not cand:
         return dist
     thin = min([np.min(ga.extents)] + [np.min(world.geoms[o].extents) for o in cand])
@@ -117,6 +121,40 @@ def removable(world: CollisionWorld, pid: str, remaining: list[str], d: np.ndarr
             if _aabb_overlap(box, world.geoms[o].aabb) and world.collide(pid, off, o):
                 return None
     return dist
+
+
+def symmetry_axis(g: PartGeom) -> np.ndarray | None:
+    """Ось вращательной симметрии (болт, гайка, шайба): главная ось инерции с «непохожим» моментом."""
+    import trimesh
+    try:
+        m = trimesh.Trimesh(g.world_vertices, g.faces, process=False)
+        c, v = m.principal_inertia_components, m.principal_inertia_vectors
+        if not np.all(np.isfinite(c)) or np.max(np.abs(c)) == 0:
+            raise ValueError
+        best, gap = None, 0.0
+        for i in range(3):
+            j, k = [x for x in range(3) if x != i]
+            if abs(c[j] - c[k]) < 0.1 * max(abs(c[j]), 1e-9):
+                g_ = min(abs(c[i] - c[j]), abs(c[i] - c[k])) / max(abs(c).max(), 1e-9)
+                if g_ > gap:
+                    best, gap = v[i], g_
+        if best is not None and gap > 0.02:
+            a = np.asarray(best, float)
+            # прилипаем к мировой оси, если почти совпадает
+            k = np.argmax(np.abs(a))
+            if abs(a[k]) > 0.99:
+                a = np.eye(3)[k] * np.sign(a[k])
+            return a / np.linalg.norm(a)
+    except Exception:
+        pass
+    # запасной путь по габаритам: две стороны почти равны (шестигранник: до 1.16 раза), третья отличается
+    e = np.asarray(g.extents, float)
+    for i in range(3):
+        j, k = [x for x in range(3) if x != i]
+        lo, hi = sorted((e[j], e[k]))
+        if hi <= 1.3 * lo and (e[i] > 1.5 * hi or e[i] < 0.6 * lo):
+            return np.eye(3)[i]
+    return None
 
 
 def _shape_signature(g: PartGeom) -> tuple:
@@ -135,6 +173,7 @@ def plan(geoms: dict[str, PartGeom], tags: dict[str, list[str]], local_dirs: dic
             if _aabb_overlap(geoms[a].aabb, geoms[b].aabb) and world.collide(a, np.zeros(3), b):
                 result.interferences.append((a, b))
     interfering = {x for pair in result.interferences for x in pair}
+    world.ignore = {frozenset(p) for p in result.interferences}
 
     sig = {pid: _shape_signature(g) for pid, g in geoms.items()}
 
@@ -157,8 +196,15 @@ def plan(geoms: dict[str, PartGeom], tags: dict[str, list[str]], local_dirs: dic
                     stack.append(y)
         return len(seen) == len(nodes)
 
+    sym = {pid: symmetry_axis(geoms[pid]) for pid in geoms if "fastener" in tags.get(pid, [])}
+
     def dirs_for(pid):
         ds = list(AXES)
+        if pid in sym and sym[pid] is not None:
+            # крепёж снимается вдоль своей оси (болт вверх из отверстия, гайка с болта)
+            a = sym[pid]
+            pair = [a, -a] if a @ up >= 0 else [-a, a]
+            ds = pair + [x for x in ds if all(np.linalg.norm(x - y) > 1e-3 for y in pair)]
         for v in (local_dirs or {}).get(pid, []):
             v = v / (np.linalg.norm(v) + 1e-12)
             for s in (v, -v):
@@ -170,8 +216,8 @@ def plan(geoms: dict[str, PartGeom], tags: dict[str, list[str]], local_dirs: dic
         free: dict[str, tuple[np.ndarray, float]] = {}
         for pid in remaining:
             for d in dirs_for(pid):
-                if len(remaining) > 1 and d[2] < -0.99:
-                    # вниз сквозь стол можно только если больше никак
+                if len(remaining) > 1 and d @ up < -0.99 and pid not in sym:
+                    # вниз сквозь стол можно только крепежу (гайки снизу) или если больше никак
                     continue
                 dist = removable(world, pid, remaining, d)
                 if dist is not None:
@@ -190,17 +236,45 @@ def plan(geoms: dict[str, PartGeom], tags: dict[str, list[str]], local_dirs: dic
             remaining.remove(top)
             continue
 
+        def encloses(pid):
+            # корпус, внутри которого ещё есть детали: снимаем позже, ставим раньше содержимого
+            box = geoms[pid].aabb
+            for o in remaining:
+                if o == pid or "fastener" in tags.get(o, []) or geoms[o].volume >= geoms[pid].volume:
+                    continue
+                ob = geoms[o].aabb
+                if np.all(ob[0] >= box[0] - 0.5) and np.all(ob[1] <= box[1] + 0.5):
+                    return True
+            return False
+
         def score(pid):
             g = geoms[pid]
-            return (0 if "fastener" in tags.get(pid, []) else 1,
+            fast = "fastener" in tags.get(pid, [])
+            e = np.sort(g.extents)
+            elongated = e[2] >= 1.8 * e[1]
+            # сначала гайки/шайбы, потом болты (резьбу планировщик не видит), потом детали
+            return (0 if fast else 1, (1 if elongated else 0) if fast else 0,
                     0 if stays_connected({pid}, remaining) else 1,
+                    1 if encloses(pid) else 0,
                     -round(float(g.aabb[1] @ up), 1), g.volume)
 
         best = min(free, key=score)
         d_best = free[best][0]
+        def local(pid, d):
+            axes = (local_dirs or {}).get(pid)
+            if not axes:
+                return np.round(d, 2)
+            return np.round(np.array([a / (np.linalg.norm(a) + 1e-12) @ d for a in axes]), 2)
+
         group = [best]
         for pid, (d, dist) in free.items():
-            if pid != best and sig[pid] == sig[best] and ("fastener" in tags.get(pid, [])) == ("fastener" in tags.get(best, [])):
+            if pid == best or sig[pid] != sig[best]:
+                continue
+            # одинаковые детали в один шаг, если снимаются в одну сторону (в мире или в своей системе координат)
+            # (зеркальные детали: противоположные направления в мире, одинаковые в своей системе)
+            same_dir = np.allclose(np.round(d, 2), np.round(d_best, 2)) or (
+                np.allclose(np.round(d, 2), -np.round(d_best, 2)) and np.allclose(local(pid, d), local(best, d_best)))
+            if same_dir:
                 group.append(pid)
         group.sort()
         dists = {pid: free[pid][1] for pid in group}

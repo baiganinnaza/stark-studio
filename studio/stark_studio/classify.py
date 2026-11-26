@@ -15,6 +15,9 @@ FASTENER_RE = re.compile(
 )
 
 
+NOT_FASTENER_RE = re.compile(r"(вал|ось|shaft|axle|spindle|шпиндел|ролик|roller|rod|штанг|тяг)", re.IGNORECASE)
+
+
 def is_fastener_name(name: str) -> bool:
     return bool(FASTENER_RE.search(name or ""))
 
@@ -36,7 +39,7 @@ def classify(parts, geoms: dict[str, PartGeom]) -> dict[str, list[str]]:
     tags = {}
     for p in parts:
         t = []
-        if is_fastener_name(p.name) or is_fastener_shape(geoms[p.id], diag):
+        if is_fastener_name(p.name) or (is_fastener_shape(geoms[p.id], diag) and not NOT_FASTENER_RE.search(p.name or "")):
             t.append("fastener")
         tags[p.id] = t
     return tags

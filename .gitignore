@@ -7,3 +7,4 @@ venv/
 workspace/
 *.stark
 !samples/*.stark
+samples/open/

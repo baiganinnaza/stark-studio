@@ -14,7 +14,7 @@ MIN_INSERT_MM = 40.0  # чтобы анимация установки была 
 
 def base_name(name: str) -> str:
     """'Болт M6x58:3' -> 'Болт M6x58'."""
-    return re.sub(r"[:#]\d+$", "", name).strip()
+    return re.sub(r"([:#]\d+|_\d+)$", "", name).strip()
 
 
 def insert_path(direction_mm_world: np.ndarray, dist_mm: float) -> list[list[float]]:
@@ -37,10 +37,23 @@ def build_steps(plan: PlanResult, names: dict[str, str], tags: dict[str, list[st
             target = None
             touching = set().union(*[plan.contacts.get(p, set()) for p in g.part_ids])
             for st in reversed(steps):
-                if set(st["parts"]) & touching:
+                in_step = set(st["parts"]).union(*[set(f["partIds"]) for f in st["fasteners"]])
+                if in_step & touching:
                     target = st
                     break
+            fname = base_name(names[g.part_ids[0]])
+            if target is not None and any(f["name"] != fname for f in target["fasteners"]):
+                # второй вид крепежа (болты, потом гайки) отдельным шагом: на очках не больше одного действия
+                target = None
             if target is not None:
+                if g.review:
+                    target["review"] = target.get("review") or g.review
+                same = next((f for f in target["fasteners"] if f["name"] == base_name(names[g.part_ids[0]])), None)
+                if same is not None:
+                    same["partIds"] += list(g.part_ids)
+                    same["qty"] = len(same["partIds"])
+                    same["partPaths"].update(paths)
+                    continue
                 target["fasteners"].append({
                     "partIds": list(g.part_ids),
                     "name": base_name(names[g.part_ids[0]]),
@@ -48,8 +61,6 @@ def build_steps(plan: PlanResult, names: dict[str, str], tags: dict[str, list[st
                     "torqueNm": None,
                     "partPaths": paths,
                 })
-                if g.review:
-                    target["review"] = target.get("review") or g.review
                 continue
         steps.append({
             "parts": list(g.part_ids),

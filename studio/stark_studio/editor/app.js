@@ -14,7 +14,7 @@ const api = async (path, opts = {}) => {
 
 const state = { project: null, steps: [], hints: { ru: {}, kk: {}, en: {} }, sel: 0, dirty: false, playing: null };
 const names = () => Object.fromEntries(state.project.parts.map((p) => [p.id, p.name]));
-const baseName = (n) => n.replace(/[:#]\d+$/, '').trim();
+const baseName = (n) => n.replace(/([:#]\d+|_\d+)$/, '').trim();
 
 // ---------- 3D ----------
 const viewerEl = $('viewer');
@@ -87,6 +87,13 @@ function localOffset(obj, arr, k) {
 
 function animate(t) {
   requestAnimationFrame(animate);
+  if (focus.target) {
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    controls.target.lerp(focus.target, 0.12);
+    const want = controls.target.clone().add(dir.multiplyScalar(focus.dist));
+    camera.position.lerp(want, 0.12);
+    if (controls.target.distanceTo(focus.target) < modelSize * 1e-3) focus.target = null;
+  }
   controls.update();
   if (modelRoot && state.steps.length) {
     const explode = +$('explode').value, hideFuture = $('hideFuture').checked;
@@ -123,7 +130,7 @@ requestAnimationFrame(animate);
 
 // клик по детали → выбрать её шаг
 const ray = new THREE.Raycaster(); let downAt = null;
-renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; focus.target = null; });
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (!modelRoot || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
   const r = renderer.domElement.getBoundingClientRect();
@@ -166,8 +173,25 @@ function updateLabel() {
   $('stepLabel').textContent = s ? `Шаг ${state.sel + 1}/${state.steps.length}: ${hintFor(s) || s.title}` : '';
 }
 
+// автокадрирование: камера плавно наводится на детали текущего шага (вместе с уже собранными)
+const focus = { target: null, dist: null };
+function focusStep() {
+  if (!modelRoot || !$('autoFocus').checked) return;
+  const box = new THREE.Box3();
+  state.steps.slice(0, state.sel + 1).forEach((s) => {
+    for (const pid of [...s.parts, ...(s.fasteners || []).flatMap((f) => f.partIds)]) {
+      const o = partObj[pid]; if (o) box.expandByObject(o);
+    }
+  });
+  if (box.isEmpty()) return;
+  const size = box.getSize(new THREE.Vector3()).length();
+  focus.target = box.getCenter(new THREE.Vector3());
+  focus.dist = Math.max(size * 1.4, modelSize * 0.15);
+}
+
 function select(i) {
   state.sel = Math.max(0, Math.min(i, state.steps.length - 1));
+  focusStep();
   renderSteps(); renderDetail();
   document.querySelector('#stepList li.sel')?.scrollIntoView({ block: 'nearest' });
 }
@@ -314,6 +338,7 @@ async function openProject(data, keepSel = false) {
   $('emptyState').hidden = true;
   if (!keepSel) state.sel = 0;
   await loadModel(data.id);
+  focusStep();
   renderSteps(); renderDetail(); showStats();
   localStorageSet('stark.lastProject', data.id);
   $('projectSelect').value = data.id;

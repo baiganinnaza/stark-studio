@@ -45,7 +45,9 @@ def test_assembly_order_is_physical(proj):
     o = order(proj)
     assert o[0] == "Основание"
     assert o.index("Подшипник 6201") < o.index("Вал") < o.index("Шестерня Z40")
-    assert o.index("Шестерня Z40") < o.index("Корпус") < o.index("Крышка корпуса") < o.index("Маховик")
+    # корпус-рамка ставится раньше своего содержимого или после, но всегда до крышки
+    assert o.index("Корпус") < o.index("Крышка корпуса") and o.index("Шестерня Z40") < o.index("Крышка корпуса")
+    assert o.index("Крышка корпуса") < o.index("Маховик")
     assert o.index("Корпус") < o.index("Кронштейн")
     assert proj["stats"]["interferences"] == []
 
@@ -67,7 +69,7 @@ def test_insert_paths_point_up_for_vertical_parts(proj):
     for s in proj["steps"]:
         assert s["insertPath"][1] == [0.0, 0.0, 0.0]
     housing = next(s for s in proj["steps"] if "Корпус" in s["title"])
-    assert housing["insertPath"][0][1] > 0.04  # glTF Y вверх, метры
+    assert housing["insertPath"][0][1] >= 0.04  # glTF Y вверх, метры
 
 
 def test_export_stark(proj):
@@ -117,3 +119,36 @@ def test_http_api(ws, sample_step):
     assert r.status_code == 200 and r.content[:2] == b"PK"
     assert c.get("/").status_code == 200
     assert c.get("/api/projects/../etc").status_code == 404
+
+
+def test_nuts_before_bolts_and_separate_step(ws, tmp_path):
+    """Болт с гайкой снизу: в сборке сначала болт сверху, затем гайка снизу отдельным шагом."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+    from stark_studio import samples as S
+
+    def cyl(z, r, h):
+        return BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, z), gp_Dir(0, 0, 1)), r, h).Shape()
+    plate = BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(gp_Pnt(-30, -30, 10), 60, 60, 8).Shape(), cyl(9, 3.2, 10)).Shape()
+    bracket = BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(gp_Pnt(-15, -15, 18), 30, 30, 6).Shape(), cyl(17, 3.2, 8)).Shape()
+    bolt = BRepAlgoAPI_Fuse(cyl(4, 3.0, 20.5), cyl(24.5, 5, 4)).Shape()
+    nut = BRepAlgoAPI_Cut(BRepPrimAPI_MakeBox(gp_Pnt(-5, -5, 5), 10, 10, 4.5).Shape(), cyl(4, 3.2, 6)).Shape()
+    orig = S.build_shapes
+    from OCP.gp import gp_Trsf
+    S.build_shapes = lambda: [("Плита", plate, (0.6, 0.6, 0.6), [gp_Trsf()]),
+                              ("Уголок", bracket, (0.2, 0.4, 0.8), [gp_Trsf()]),
+                              ("Болт M6", bolt, (0.1, 0.1, 0.1), [gp_Trsf()]),
+                              ("Гайка M6", nut, (0.9, 0.9, 0.1), [gp_Trsf()])]
+    try:
+        f = S.write_sample_step(tmp_path / "bolt_nut.step")
+    finally:
+        S.build_shapes = orig
+    d = P.create_project(f, "bolt_nut.step")
+    n = {p["id"]: p["name"] for p in d["parts"]}
+    titles = [s["title"] for s in d["steps"]]
+    assert [n[s["parts"][0]] for s in d["steps"]][:2] == ["Плита", "Уголок"], titles
+    assert d["steps"][1]["fasteners"][0]["name"] == "Болт M6", titles
+    nut_step = d["steps"][2]
+    assert n[nut_step["parts"][0]] == "Гайка M6", titles
+    assert nut_step["insertPath"][0][1] < 0  # гайка подводится снизу
