@@ -6,7 +6,7 @@
 ```
 studio/   Stark Studio: Python + OpenCascade + веб-редактор (этот MVP)
 spec/     формат пакета .stark (контракт между Studio и плеером)
-player/   Stark Player: Unity для XREAL Air 2 Ultra + Beam Pro (впереди)
+player/   Stark Player: Unity 6 для XREAL Air 2 Ultra + Beam Pro (веха 1, см. player/README.md)
 samples/  тестовая сборка «Редукторный модуль» (STEP) и готовый .stark
 ```
 

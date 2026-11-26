@@ -1,0 +1,18 @@
+name: player-core
+on:
+  push:
+    paths: ["player/**", "samples/**", ".github/workflows/player-core.yml"]
+  pull_request:
+    paths: ["player/**", "samples/**", ".github/workflows/player-core.yml"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Stark.Core под netstandard2.1 (как в Unity 6)
+        run: dotnet build player/dotnet/Core
+      - name: Тесты ядра плеера
+        run: dotnet test player/dotnet/Tests

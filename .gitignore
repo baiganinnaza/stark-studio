@@ -8,3 +8,26 @@ workspace/
 *.stark
 !samples/*.stark
 samples/open/
+
+# Unity (player/)
+player/[Ll]ibrary/
+player/[Tt]emp/
+player/[Ll]ogs/
+player/[Oo]bj/
+player/[Bb]uild/
+player/[Bb]uilds/
+player/[Uu]ser[Ss]ettings/
+player/*.csproj
+player/*.sln
+player/.vs/
+player/.idea/
+# генерируются меню Stark → Create Player Scene
+player/Assets/Scenes/
+player/Assets/Scenes.meta
+player/Assets/Stark/Generated/
+player/Assets/Stark/Generated.meta
+player/Assets/StreamingAssets/
+player/Assets/StreamingAssets.meta
+# dotnet-тесты ядра
+player/dotnet/**/bin/
+player/dotnet/**/obj/

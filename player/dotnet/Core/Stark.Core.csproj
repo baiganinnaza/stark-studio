@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Сборка Stark.Core вне Unity: те же исходники, что в Assets/Stark/Core.
+       netstandard2.1 + C# 9 = то, что доступно в Unity 6, так что здесь ловятся
+       случайные зависимости от API, которых в Unity нет. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Stark.Core</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Assets/Stark/Core/**/*.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,29 @@
+{
+    "name": "Stark.Editor",
+    "rootNamespace": "Stark.EditorTools",
+    "references": [
+        "Stark.Core",
+        "Stark.Device",
+        "Stark.Presentation",
+        "Stark.App",
+        "Stark.Adapters.XR",
+        "Stark.Adapters.Simulator",
+        "Unity.XR.ARFoundation",
+        "Unity.XR.ARSubsystems",
+        "Unity.XR.CoreUtils",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
