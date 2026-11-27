@@ -245,6 +245,25 @@ namespace Stark.Presentation
             }
         }
 
+        /// <summary>
+        /// Поставить модель в заданную точку стола без взгляда и щипка: для автотестов
+        /// и будущего размещения по маркеру/QR.
+        /// </summary>
+        public bool PlaceAt(Pose pose)
+        {
+            if (CurrentMode != Mode.Placing) return false;
+            var cam = Cam;
+            var away = cam != null ? pose.position - cam.transform.position : Vector3.forward;
+            away.y = 0;
+            _candidatePose = new Pose(pose.position, away.sqrMagnitude > 1e-4f ? Quaternion.LookRotation(away.normalized, Vector3.up) : pose.rotation);
+            _hasPose = true;
+            ConfirmPlacement();
+            return CurrentMode == Mode.Assembling;
+        }
+
+        /// <summary>Якорь модели на столе (null до размещения).</summary>
+        public Transform Anchor => _anchor;
+
         void ConfirmPlacement()
         {
             if (CurrentMode != Mode.Placing || !_hasPose) return;

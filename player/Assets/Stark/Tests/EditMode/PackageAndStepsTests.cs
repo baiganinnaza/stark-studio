@@ -183,3 +183,31 @@ namespace Stark.Core.Tests
         }
     }
 }
+
+namespace Stark.Core.Tests
+{
+    public class OpenSamplesTests
+    {
+        /// <summary>
+        /// Пакеты из samples/open (их делает samples/fetch_open_samples.sh + stark-studio process,
+        /// в git не лежат). Если папки нет, тест ничего не проверяет.
+        /// </summary>
+        [Test]
+        public void LoadsOpenSamplesIfPresent()
+        {
+            var dir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(TestData.SamplePath)), "samples", "open");
+            if (!System.IO.Directory.Exists(dir)) Assert.Pass("samples/open нет");
+            int n = 0;
+            foreach (var f in System.IO.Directory.GetFiles(dir, "*.stark"))
+            {
+                var pkg = StarkPackageLoader.LoadFile(f);
+                var seq = new StepSequencer(pkg);
+                while (seq.Next()) { }
+                Assert.IsTrue(seq.IsFinished, f);
+                foreach (var p in pkg.Parts) Assert.AreEqual(PartState.Done, seq.StateOf(p.Id), f);
+                n++;
+            }
+            Assert.Pass($"{n} пакетов");
+        }
+    }
+}

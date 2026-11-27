@@ -31,3 +31,4 @@ player/Assets/StreamingAssets.meta
 # dotnet-тесты ядра
 player/dotnet/**/bin/
 player/dotnet/**/obj/
+player/TestScreenshots/

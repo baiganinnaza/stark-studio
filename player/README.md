@@ -72,6 +72,19 @@ dotnet test player/dotnet/Tests     # .NET 8 SDK
 `player/dotnet/Core` собирает ядро под netstandard2.1 + C# 9, как в Unity 6, и ловит
 случайное использование API, которых в Unity нет.
 
+## Проверка в Unity на GitHub Actions (без очков)
+
+Workflow `player-unity` (GameCI) открывает проект в настоящем Unity, прогоняет EditMode-тесты
+и PlayMode-тест `PlayerWalkthroughTests`: симулятор загружает демо-редуктор и планетарный
+редуктор NEMA17 (собирается из открытого STEP прямо в CI), ставит модель на стол, проходит
+все шаги, проверяет подсветку деталей и сохраняет скриншот каждого шага. Второй тест
+подаёт в плеер кадры рук: щипок ставит модель, смахивание листает шаги, палец нажимает «Далее».
+Скриншоты: Actions → запуск → артефакт **player-screenshots**.
+
+Нужны секреты репозитория (Settings → Secrets and variables → Actions): `UNITY_LICENSE`
+(содержимое `Unity_lic.ulf` после активации бесплатной лицензии в Unity Hub), `UNITY_EMAIL`,
+`UNITY_PASSWORD`. Без них workflow пропускается с предупреждением.
+
 ## Сборка на Beam Pro
 
 1. Скачайте XREAL SDK 3.1.0 (`com.xreal.xr.tar.gz`) с developer.xreal.com →
