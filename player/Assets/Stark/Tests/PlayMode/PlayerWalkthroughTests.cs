@@ -91,12 +91,13 @@ namespace Stark.PlayMode.Tests
 
             string dir = Path.Combine(ScreenshotRoot, Path.GetFileNameWithoutExtension(packagePath));
             Directory.CreateDirectory(dir);
-            yield return null;
+            StartRecording(services.Camera, Path.GetFileNameWithoutExtension(packagePath));
+            yield return new WaitForSeconds(1.0f);
             Capture(services.Camera, Path.Combine(dir, "00_placing.png"));
 
             Assert.IsTrue(player.PlaceAt(TableCenter(rig, services)), "модель не встала на стол");
-            yield return null;
-            FrameModel(services.Camera, player);
+            yield return new WaitForSeconds(0.8f);
+            yield return FlyTo(services.Camera, player, 1.2f);
 
             int count = player.Steps.Count;
             for (int i = 0; i < count; i++)
@@ -109,9 +110,10 @@ namespace Stark.PlayMode.Tests
                 foreach (var id in f.PartIds)
                     Assert.AreEqual(PartState.CurrentFastener, player.Model.Parts[id].State, $"шаг {i + 1}: {id}");
 
-                // Середина анимации установки: деталь видна на пути.
+                // Середина анимации установки: деталь видна на пути. Для видео держим шаг 2.5 с.
                 yield return new WaitForSeconds(0.7f);
                 Capture(services.Camera, Path.Combine(dir, $"{i + 1:00}_step.png"));
+                yield return new WaitForSeconds(1.8f);
                 player.Next("test");
                 yield return null;
             }
@@ -126,6 +128,7 @@ namespace Stark.PlayMode.Tests
             player.ToggleExplode();
             yield return new WaitForSeconds(1.0f);
             Capture(services.Camera, Path.Combine(dir, $"{count + 2:00}_explode.png"));
+            yield return new WaitForSeconds(1.5f);
             Debug.Log($"[Stark test] {Path.GetFileName(packagePath)}: {count} шагов, скриншоты в {dir}");
         }
 
@@ -147,6 +150,7 @@ namespace Stark.PlayMode.Tests
             yield return null;
             yield return null;
 
+            StartRecording(services.Camera, "gestures");
             var hand = services.Camera.transform.position + services.Camera.transform.forward * 0.5f;
             yield return hands.Pinch(hand, Vector3.zero, 0.15f); // короткий щипок = Tap
             Assert.AreEqual(StarkPlayer.Mode.Assembling, player.CurrentMode, "щипок не поставил модель");
@@ -166,6 +170,23 @@ namespace Stark.PlayMode.Tests
             Assert.AreEqual(1, player.Steps.CurrentIndex, "поки-кнопка «Далее»");
         }
 
+        /// <summary>Плавно подвести камеру к модели (как сборщик садится за стол).</summary>
+        static IEnumerator FlyTo(Camera cam, StarkPlayer player, float seconds)
+        {
+            var fromPos = cam.transform.position;
+            var fromRot = cam.transform.rotation;
+            FrameModel(cam, player);
+            var toPos = cam.transform.position;
+            var toRot = cam.transform.rotation;
+            for (float t = 0; t < seconds; t += Time.deltaTime)
+            {
+                float k = Mathf.SmoothStep(0, 1, t / seconds);
+                cam.transform.SetPositionAndRotation(Vector3.Lerp(fromPos, toPos, k), Quaternion.Slerp(fromRot, toRot, k));
+                yield return null;
+            }
+            cam.transform.SetPositionAndRotation(toPos, toRot);
+        }
+
         static void FrameModel(Camera cam, StarkPlayer player)
         {
             var center = player.Model.transform.TransformPoint(player.Model.LocalBounds.center);
@@ -179,9 +200,8 @@ namespace Stark.PlayMode.Tests
             cam.transform.LookAt(center + Vector3.up * r * 0.5f);
         }
 
-        static void Capture(Camera cam, string path)
+        static void Capture(Camera cam, string path, int w = 1280, int h = 720)
         {
-            const int w = 1280, h = 720;
             var rt = new RenderTexture(w, h, 24);
             var prev = cam.targetTexture;
             cam.targetTexture = rt;
@@ -197,6 +217,39 @@ namespace Stark.PlayMode.Tests
             Object.Destroy(tex);
             rt.Release();
             Object.Destroy(rt);
+        }
+
+        /// <summary>
+        /// Запись видео: каждые 1/15 с кадр с камеры в frames/NNNNN.png.
+        /// В CI ffmpeg собирает их в mp4 (player/TestScreenshots/&lt;пакет&gt;.mp4).
+        /// </summary>
+        sealed class FrameRecorder : MonoBehaviour
+        {
+            public Camera cam;
+            public string dir;
+            public float interval = 1f / 15f;
+            int _n;
+            float _next;
+
+            void LateUpdate()
+            {
+                if (cam == null || Time.unscaledTime < _next) return;
+                _next = Time.unscaledTime + interval;
+                Capture(cam, Path.Combine(dir, $"{_n++:00000}.png"), 960, 540);
+            }
+        }
+
+        FrameRecorder StartRecording(Camera cam, string name)
+        {
+            string dir = Path.Combine(ScreenshotRoot, "video", name);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            Directory.CreateDirectory(dir);
+            var go = new GameObject("Frame Recorder");
+            _spawned.Add(go);
+            var r = go.AddComponent<FrameRecorder>();
+            r.cam = cam;
+            r.dir = dir;
+            return r;
         }
 
         /// <summary>Руки по сценарию теста.</summary>
