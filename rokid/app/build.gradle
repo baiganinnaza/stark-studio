@@ -1,0 +1,73 @@
+plugins {
+    id "com.android.application"
+}
+
+// Версия приложения: STARK_VERSION_CODE задаёт CI (номер сборки), локально 1.
+def starkVersionCode = (System.getenv("STARK_VERSION_CODE") ?: "1") as int
+
+android {
+    namespace "app.stark.rokid"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "app.stark.rokid"
+        // Rokid Glasses (YodaOS-Sprite) основаны на Android 12; запас вниз для других очков на Android.
+        minSdk 26
+        targetSdk 34
+        versionCode starkVersionCode
+        versionName "0.1.${starkVersionCode}"
+    }
+
+    signingConfigs {
+        // Общий тестовый ключ из репозитория: APK из разных сборок CI ставятся поверх друг друга
+        // без удаления приложения. Для магазина/заказчиков нужен отдельный ключ (не в git).
+        stark {
+            storeFile file("stark-test.keystore")
+            storePassword "stark-test"
+            keyAlias "stark-test"
+            keyPassword "stark-test"
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.stark
+        }
+        release {
+            signingConfig signingConfigs.stark
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        // Образец «Редукторный модуль» из samples/ кладётся в APK, чтобы очки работали сразу после установки.
+        main.assets.srcDirs += "$buildDir/generated/starkSample"
+    }
+
+    testOptions {
+        unitTests.all {
+            systemProperty "stark.sample", rootProject.file("../samples/gearbox_module.stark").absolutePath
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+def copySample = tasks.register("copyStarkSample", Copy) {
+    from(rootProject.file("../samples/gearbox_module.stark"))
+    into("$buildDir/generated/starkSample")
+}
+tasks.named("preBuild") { dependsOn copySample }
+
+dependencies {
+    implementation "com.google.zxing:core:3.5.3"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20240303"
+}
