@@ -2,7 +2,12 @@ services:
   studio:
     build: ./studio
     # Порт открыт только на этом компьютере: CAD заказчика не уходит в сеть
-    ports: ["127.0.0.1:8040:8040"]
-    volumes: ["./workspace:/data/projects"]
+    ports:
+      - "127.0.0.1:8040:8040"
+      # Передача на очки по Wi‑Fi: отдаёт только пакет, отправленный кнопкой «На очки», по токену из QR
+      - "8041:8041"
+    volumes: ["./workspace:/data/projects", "./workspace-link:/data/link"]
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # адрес этого компьютера в Wi‑Fi сети (контейнер сам его не видит), например 192.168.1.10
+      - STARK_LINK_ADVERTISE=${STARK_LINK_ADVERTISE:-}

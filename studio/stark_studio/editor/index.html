@@ -20,18 +20,23 @@
     <input id="fileInput" type="file" accept=".step,.stp" hidden>
   </label>
   <select id="upAxis" title="Какая ось в CAD направлена вверх"><option value="Z">Z вверх</option><option value="Y">Y вверх</option></select>
-  <button id="sampleBtn" class="ghost">Тестовая сборка</button>
+  <button id="sampleBtn" class="ghost" title="Открыть тестовую сборку (редуктор)">Пример</button>
   <div class="spacer"></div>
+  <button id="undoBtn" class="ghost" disabled title="Отменить (Ctrl+Z)">↶</button>
+  <button id="redoBtn" class="ghost" disabled title="Вернуть (Ctrl+Shift+Z)">↷</button>
   <button id="saveBtn" disabled>Сохранить</button>
   <button id="hintsBtn" disabled title="Сгенерировать подсказки (LLM, если задан ANTHROPIC_API_KEY, иначе шаблон)">Подсказки</button>
   <select id="hintLang" title="Язык подсказок"><option>ru</option><option>kk</option><option>en</option></select>
-  <button id="replanBtn" class="ghost" disabled title="Заново рассчитать шаги из CAD">Перепланировать</button>
-  <button id="exportBtn" class="primary" disabled>Экспорт .stark</button>
+  <button id="replanBtn" class="ghost" disabled title="Заново рассчитать шаги из CAD">Пересчитать</button>
+  <button id="exportBtn" disabled title="Скачать пакет .stark файлом">.stark</button>
+  <button id="sendBtn" class="primary" disabled title="Сохранить и отправить пакет на очки по Wi‑Fi">На очки <span id="linkDot" class="dot"></span></button>
+  <button id="linkBtn" class="ghost" title="Подключить очки: QR-код и состояние">QR</button>
 </header>
 
 <main>
   <aside id="stepsPane">
-    <div class="pane-title">Шаги сборки <span id="stepCount"></span></div>
+    <div class="pane-title">Шаги сборки <span id="stepCount"></span>
+      <button id="nextReviewBtn" class="mini warn" hidden title="Перейти к следующему шагу, который нужно проверить"></button></div>
     <ol id="stepList"></ol>
     <div class="hint-text">Перетаскивайте шаги, чтобы изменить порядок.</div>
   </aside>
@@ -61,6 +66,33 @@
     <div id="detail"></div>
   </aside>
 </main>
+
+<dialog id="linkDlg">
+  <form method="dialog" class="dlg-head"><b>Очки по Wi‑Fi</b><button class="x" title="Закрыть">✕</button></form>
+  <div id="linkOff">
+    <p>Передача выключена. При включении очки в этой Wi‑Fi сети смогут забирать
+       только тот пакет, который вы отправили кнопкой «На очки», и только после сканирования QR-кода.
+       Сам CAD-файл и редактор в сеть не открываются.</p>
+    <button id="linkStart" class="primary">Включить передачу</button>
+  </div>
+  <div id="linkOn" hidden>
+    <div class="qr-wrap"><img id="qrImg" alt="QR-код для очков"></div>
+    <select id="linkAddr" hidden title="Адрес этого компьютера в сети"></select>
+    <ol class="how">
+      <li>Beam Pro (или телефон с плеером) в той же Wi‑Fi сети, что и этот компьютер.</li>
+      <li>Наведите камеру Beam Pro на QR-код и откройте ссылку.</li>
+      <li>Нажмите «Открыть в Stark Player». Дальше всё, что вы отправите «На очки», появится само.</li>
+    </ol>
+    <div class="addr"><span id="pairUrl"></span></div>
+    <div id="linkCurrent" class="box"></div>
+    <div id="linkDevices" class="box"></div>
+    <div class="row">
+      <button id="linkSend" class="primary">Отправить текущий проект</button>
+      <button id="linkReset" class="ghost2" title="Новый QR-код: старые очки потеряют доступ">Новый QR</button>
+      <button id="linkStop" class="ghost2">Выключить</button>
+    </div>
+  </div>
+</dialog>
 
 <footer>
   <span id="stats"></span>

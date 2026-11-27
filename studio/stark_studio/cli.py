@@ -13,6 +13,7 @@ def main(argv=None):
     s = sub.add_parser("serve", help="запустить веб-редактор")
     s.add_argument("--host", default="127.0.0.1", help="по умолчанию только этот компьютер (NDA)")
     s.add_argument("--port", type=int, default=8040)
+    s.add_argument("--link", action="store_true", help="сразу включить передачу на очки по Wi‑Fi (порт 8041)")
     p = sub.add_parser("process", help="STEP → .stark без редактора")
     p.add_argument("step")
     p.add_argument("-o", "--out")
@@ -25,6 +26,11 @@ def main(argv=None):
     if a.cmd == "serve":
         import uvicorn
         print(f"Stark Studio: http://{a.host}:{a.port}")
+        if a.link:
+            from .link import hub
+            hub.start()
+            for u in hub.base_urls():
+                print(f"Передача на очки: {hub.pair_url(u)}")
         uvicorn.run("stark_studio.server:app", host=a.host, port=a.port)
     elif a.cmd == "sample":
         from .samples import write_sample_step

@@ -34,7 +34,9 @@ let modelRoot = null;
 let modelSize = 1;
 const partObj = {};   // partId -> Object3D
 const partBase = {};  // partId -> {pos, mats}
-const COL_CURRENT = new THREE.Color(0x22c3ee), COL_FAST = new THREE.Color(0xff8a1f);
+const COL_CURRENT = new THREE.Color(0x22c3ee), COL_FAST = new THREE.Color(0xff8a1f), COL_INTER = new THREE.Color(0xe53935);
+const partCenter = {}; // partId -> центр детали в собранном виде (координаты сцены)
+const arrows = new THREE.Group(); scene.add(arrows);
 
 function resize() {
   const w = viewerEl.clientWidth, h = viewerEl.clientHeight;
@@ -45,6 +47,7 @@ new ResizeObserver(resize).observe(viewerEl);
 async function loadModel(pid) {
   if (modelRoot) { scene.remove(modelRoot); }
   for (const k in partObj) delete partObj[k];
+  for (const k in partCenter) delete partCenter[k];
   const gltf = await new GLTFLoader().loadAsync(`/api/projects/${pid}/model.glb?t=${Date.now()}`);
   modelRoot = gltf.scene; scene.add(modelRoot);
   for (const p of state.project.parts) {
@@ -54,6 +57,7 @@ async function loadModel(pid) {
     const mats = [];
     o.traverse((m) => { if (m.isMesh) { m.material = m.material.clone(); m.material.userData.base = m.material.color.clone(); m.userData.partId = p.id; mats.push(m.material); } });
     partBase[p.id] = { pos: o.position.clone(), mats };
+    partCenter[p.id] = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
   }
   const box = new THREE.Box3().setFromObject(modelRoot), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
   const r = Math.max(size.x, size.y, size.z);
@@ -111,9 +115,13 @@ function animate(t) {
         o.position.add(localOffset(o, path[0], explode * modelSize * 1.2 * (si / state.steps.length) / len));
       }
       if (status === 'current' && path) o.position.add(localOffset(o, path[0], 1 - ease));
-      o.visible = !(status === 'future' && hideFuture);
+      const inter = status !== 'current' && interPartners.has(pid);
+      o.visible = inter || !(status === 'future' && hideFuture);
       for (const m of b.mats) {
-        if (status === 'current') {
+        if (inter) {
+          m.color.copy(m.userData.base).lerp(COL_INTER, 0.75); m.emissive?.copy(COL_INTER).multiplyScalar(0.15 + 0.2 * pulse);
+          m.transparent = true; m.opacity = 0.55; m.depthWrite = false;
+        } else if (status === 'current') {
           m.color.copy(isFast ? COL_FAST : COL_CURRENT); m.emissive?.copy(isFast ? COL_FAST : COL_CURRENT).multiplyScalar(0.25 + 0.35 * pulse);
           m.transparent = false; m.opacity = 1; m.depthWrite = true;
         } else if (status === 'done') {
@@ -145,6 +153,8 @@ function hintFor(step, lang = 'ru') { return state.hints[lang]?.[step.hintKey] |
 function renderSteps() {
   const ol = $('stepList'); ol.innerHTML = '';
   $('stepCount').textContent = state.steps.length ? `(${state.steps.length})` : '';
+  const nrev = state.steps.filter((s) => s.review).length, nb = $('nextReviewBtn');
+  nb.hidden = !nrev; nb.textContent = `⚠ проверить: ${nrev} ›`;
   state.steps.forEach((s, i) => {
     const li = document.createElement('li');
     li.draggable = true; li.dataset.i = i;
@@ -191,12 +201,38 @@ function focusStep() {
 
 function select(i) {
   state.sel = Math.max(0, Math.min(i, state.steps.length - 1));
-  focusStep();
+  focusStep(); updateInter(); updateArrows();
   renderSteps(); renderDetail();
   document.querySelector('#stepList li.sel')?.scrollIntoView({ block: 'nearest' });
 }
 
-function markDirty() { state.dirty = true; $('saveBtn').disabled = false; setStatus('Есть несохранённые изменения'); }
+function markDirty(kind) { state.dirty = true; $('saveBtn').disabled = false; setStatus('Есть несохранённые изменения'); histPush(kind); }
+
+// ---------- история правок (Ctrl+Z / Ctrl+Shift+Z) ----------
+// kind: правки одного текстового поля подряд склеиваются в одну запись
+const hist = { stack: [], pos: -1, kind: null, at: 0 };
+const snapshot = () => JSON.stringify({ steps: state.steps, hints: state.hints, sel: state.sel });
+function histReset() { hist.stack = [snapshot()]; hist.pos = 0; hist.kind = null; updateUndo(); }
+function histPush(kind) {
+  const now = Date.now(), snap = snapshot();
+  if (kind && kind === hist.kind && now - hist.at < 2000 && hist.pos > 0) hist.stack[hist.pos] = snap;
+  else {
+    hist.stack.splice(hist.pos + 1); hist.stack.push(snap); hist.pos = hist.stack.length - 1;
+    if (hist.stack.length > 300) { hist.stack.shift(); hist.pos--; }
+  }
+  hist.kind = kind || null; hist.at = now; updateUndo();
+}
+function histGo(delta) {
+  const to = hist.pos + delta; if (to < 0 || to >= hist.stack.length) return;
+  // показать шаг, где была отменяемая (или возвращаемая) правка
+  const where = JSON.parse(hist.stack[delta < 0 ? hist.pos : to]).sel;
+  hist.pos = to; hist.kind = null;
+  const s = JSON.parse(hist.stack[to]); state.steps = s.steps; state.hints = s.hints;
+  state.dirty = true; $('saveBtn').disabled = false; updateUndo();
+  select(Math.min(where ?? state.sel, state.steps.length - 1));
+  setStatus(delta < 0 ? 'Отменено' : 'Возвращено');
+}
+function updateUndo() { $('undoBtn').disabled = hist.pos <= 0; $('redoBtn').disabled = hist.pos >= hist.stack.length - 1; }
 
 function relabel() {
   const n = names();
@@ -254,39 +290,39 @@ function renderDetail() {
   if (!s) return;
   const n = names(); const i = state.sel;
   const el = (html) => { const t = document.createElement('div'); t.innerHTML = html; return t.firstElementChild; };
-  if (s.review) {
-    const r = el(`<div class="review">⚠ Требует проверки: <span></span> <button class="ghost">Проверено</button></div>`);
-    r.querySelector('span').textContent = s.review;
-    r.querySelector('button').style.cssText = 'color:inherit;border-color:currentColor;padding:1px 8px;margin-left:6px';
-    r.querySelector('button').onclick = () => { s.review = null; markDirty(); renderSteps(); renderDetail(); };
-    d.appendChild(r);
-  }
+  if (s.review) d.appendChild(reviewBox(s, el));
   const field = (label, input, extra) => { const f = el(`<div class="field"><label class="l"></label></div>`); f.querySelector('label').textContent = label; f.appendChild(input); if (extra) f.appendChild(extra); d.appendChild(f); return input; };
 
   const title = field('Название шага', el('<input type="text">'));
-  title.value = s.title; title.oninput = () => { s.title = title.value; s.autoTitle = false; markDirty(); renderSteps(); };
+  title.value = s.title; title.oninput = () => { s.title = title.value; s.autoTitle = false; markDirty('title' + s.hintKey); renderStepsKeepFocus(); };
 
   for (const lang of ['ru', 'kk', 'en']) {
     const ta = el('<textarea rows="2"></textarea>'); const cnt = el('<div class="counter"></div>');
     const upd = () => { const L = ta.value.length; cnt.textContent = `${L}/80`; cnt.classList.toggle('over', L > 80); };
     field(`Подсказка на очках (${lang})`, ta, cnt);
     ta.value = state.hints[lang]?.[s.hintKey] || ''; upd();
-    ta.oninput = () => { (state.hints[lang] ||= {})[s.hintKey] = ta.value; upd(); markDirty(); if (lang === 'ru') { renderStepsKeepFocus(); } };
+    ta.oninput = () => { (state.hints[lang] ||= {})[s.hintKey] = ta.value; upd(); markDirty(`hint-${lang}-${s.hintKey}`); if (lang === 'ru') { renderStepsKeepFocus(); } };
   }
 
+  d.appendChild(dirEditor(s, s.parts, 'Откуда ставится деталь'));
+
   const tool = field('Инструмент', el('<input type="text" placeholder="например, шестигранник 5 мм">'));
-  tool.value = s.tool || ''; tool.oninput = () => { s.tool = tool.value; markDirty(); };
+  tool.value = s.tool || ''; tool.oninput = () => { s.tool = tool.value; markDirty('tool' + s.hintKey); };
 
   const checks = field('Проверки (по одной в строке)', el('<textarea rows="2" placeholder="Прокладка уложена в паз"></textarea>'));
-  checks.value = (s.checks || []).join('\n'); checks.oninput = () => { s.checks = checks.value.split('\n').map((x) => x.trim()).filter(Boolean); markDirty(); };
+  checks.value = (s.checks || []).join('\n'); checks.oninput = () => { s.checks = checks.value.split('\n').map((x) => x.trim()).filter(Boolean); markDirty('checks' + s.hintKey); };
 
   if ((s.fasteners || []).length) {
     const box = el('<div class="field"><label class="l">Крепёж</label></div>');
     s.fasteners.forEach((f, fi) => {
-      const row = el(`<div class="fastener"><b></b> ×${f.qty}<br>момент, Н·м: <input type="number" step="0.1" min="0"> <button class="ghost" title="Сделать отдельным шагом">в отдельный шаг</button></div>`);
+      const row = el(`<div class="fastener"><b></b> ×${f.qty}<br>момент, Н·м: <input type="number" step="0.1" min="0"> <button class="ghost" title="Сделать отдельным шагом">в отдельный шаг</button>
+        <div class="fdir"></div><div class="fmove"></div></div>`);
+      f.partPaths ||= {};
+      row.querySelector('.fdir').appendChild(dirSelect(f.partPaths, f.partIds, (dir) => { setPaths(f.partPaths, f.partIds, dir); markDirty(); updateArrows(); }));
+      row.querySelector('.fmove').appendChild(stepSelect(i, 'перенести в шаг…', (to) => moveFastener(i, fi, to)));
       row.querySelector('b').textContent = f.name;
       const inp = row.querySelector('input'); inp.value = f.torqueNm ?? '';
-      inp.oninput = () => { f.torqueNm = inp.value === '' ? null : +inp.value; markDirty(); };
+      inp.oninput = () => { f.torqueNm = inp.value === '' ? null : +inp.value; markDirty(`torque${s.hintKey}-${fi}`); };
       const btn = row.querySelector('button'); btn.style.cssText = 'color:var(--text);border-color:var(--line);padding:1px 6px;margin-left:4px';
       btn.onclick = () => {
         s.fasteners.splice(fi, 1);
@@ -302,6 +338,8 @@ function renderDetail() {
   for (const pid of s.parts) {
     const lb = el('<label><input type="checkbox"> <span></span></label>');
     lb.querySelector('input').value = pid; lb.querySelector('span').textContent = `${n[pid] || pid}  (${pid})`;
+    if (interOf(pid).length) { lb.classList.add('inter'); lb.title = 'Пересекается в CAD с: ' + interOf(pid).map((q) => n[q] || q).join(', '); }
+    lb.appendChild(stepSelect(i, '→ в шаг…', (to) => movePart(pid, i, to)));
     parts.appendChild(lb);
   }
   d.appendChild(parts);
@@ -314,6 +352,181 @@ function renderDetail() {
   btn('↓', () => moveStep(i, i + 1), i >= state.steps.length - 1);
   btn('Удалить шаг', () => deleteStep(i), state.steps.length < 2);
   d.appendChild(row);
+}
+
+// ---------- проверка шагов: пересечения, направления, перенос деталей ----------
+const DIRS = [
+  ['сверху', [0, 1, 0]], ['снизу', [0, -1, 0]], ['спереди', [0, 0, 1]],
+  ['сзади', [0, 0, -1]], ['справа', [1, 0, 0]], ['слева', [-1, 0, 0]],
+];
+const MIN_DIST_MM = 40;
+let interPartners = new Set();
+const stepParts = (s) => [...s.parts, ...(s.fasteners || []).flatMap((f) => f.partIds)];
+const interOf = (pid) => (state.project?.stats?.interferences || []).filter((p) => p.includes(pid)).map(([a, b]) => (a === pid ? b : a));
+
+function updateInter() {
+  const s = state.steps[state.sel]; interPartners = new Set();
+  if (!s) return;
+  const own = new Set(stepParts(s));
+  for (const pid of own) for (const q of interOf(pid)) if (!own.has(q)) interPartners.add(q);
+}
+
+function dirKey(path) {
+  if (!path || !path[0]) return null;
+  const v = path[0], L = Math.hypot(...v); if (L < 1e-9) return null;
+  const u = v.map((x) => x / L);
+  const hit = DIRS.find(([, d]) => d.every((c, k) => Math.abs(c - u[k]) < 1e-3));
+  return hit ? hit[0] : 'своё';
+}
+const pathLenMm = (path) => (path && path[0] ? Math.round(Math.hypot(...path[0]) * 1000) : 0);
+
+function setPaths(paths, pids, dir, distMm) {
+  for (const pid of pids) {
+    const cur = paths[pid];
+    const mm = Math.max(MIN_DIST_MM, distMm ?? (pathLenMm(cur) || 60));
+    paths[pid] = dir ? [dir.map((c) => +(c * mm / 1000).toFixed(5)), [0, 0, 0]] : null;
+  }
+}
+
+function dirEditor(s, pids, label) {
+  const wrap = document.createElement('div'); wrap.className = 'field';
+  if (!pids.length) return wrap;
+  s.partPaths ||= {};
+  const keys = new Set(pids.map((p) => dirKey(s.partPaths[p])));
+  const curKey = keys.size === 1 ? [...keys][0] : 'разные';
+  wrap.innerHTML = `<label class="l"></label><div class="dirgrid"></div><div class="dirmeta"></div>`;
+  wrap.querySelector('label').textContent = label + (pids.length > 1 ? ` (все ${pids.length})` : '');
+  const grid = wrap.querySelector('.dirgrid');
+  for (const [name, d] of DIRS) {
+    const b = document.createElement('button'); b.textContent = name; b.className = curKey === name ? 'on' : '';
+    b.title = `Деталь приходит ${name} и движется к месту установки`;
+    b.onclick = () => {
+      setPaths(s.partPaths, pids, d); s.insertPath = s.partPaths[s.parts[0]] ?? null;
+      markDirty(); updateArrows(); renderDetail();
+    };
+    grid.appendChild(b);
+  }
+  const meta = wrap.querySelector('.dirmeta');
+  const mm = pathLenMm(s.partPaths[pids[0]]);
+  if (curKey === null) meta.innerHTML = '<span class="nodir">Путь не задан: на очках деталь просто появится. Выберите направление.</span>';
+  else {
+    meta.innerHTML = `<span></span> ход, мм: <input type="number" min="${MIN_DIST_MM}" step="10">`;
+    meta.querySelector('span').textContent = curKey === 'своё' ? 'Направление из CAD (наклонное).' : curKey === 'разные' ? 'У деталей разные направления.' : '';
+    const inp = meta.querySelector('input'); inp.value = mm || '';
+    inp.onchange = () => {
+      const v = Math.max(MIN_DIST_MM, +inp.value || MIN_DIST_MM);
+      for (const p of pids) {
+        const cur = s.partPaths[p]; if (!cur) continue;
+        const L = Math.hypot(...cur[0]) || 1; s.partPaths[p] = [cur[0].map((c) => +(c / L * v / 1000).toFixed(5)), [0, 0, 0]];
+      }
+      s.insertPath = s.partPaths[s.parts[0]] ?? null; markDirty(); updateArrows(); renderDetail();
+    };
+  }
+  return wrap;
+}
+
+function dirSelect(paths, pids, onPick) {
+  const sel = document.createElement('select'); sel.title = 'Откуда ставится крепёж';
+  const keys = new Set(pids.map((p) => dirKey(paths?.[p])));
+  const cur = keys.size === 1 ? [...keys][0] : 'разные';
+  const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+  opt('', `направление: ${cur ?? 'не задано'}`);
+  for (const [name] of DIRS) opt(name, name);
+  sel.onchange = () => { const d = DIRS.find(([n]) => n === sel.value); if (d) onPick(d[1]); };
+  return sel;
+}
+
+function stepSelect(from, placeholder, onPick) {
+  const sel = document.createElement('select');
+  const o0 = document.createElement('option'); o0.value = ''; o0.textContent = placeholder; sel.appendChild(o0);
+  state.steps.forEach((t, j) => {
+    if (j === from) return;
+    const o = document.createElement('option'); o.value = j; o.textContent = `${j + 1}. ${t.title}`.slice(0, 60); sel.appendChild(o);
+  });
+  sel.onclick = (e) => e.stopPropagation();
+  sel.onchange = () => { if (sel.value !== '') onPick(+sel.value); };
+  return sel;
+}
+
+function dropIfEmpty(i, into) {
+  // шаг без деталей не нужен: его крепёж и проверки уходят в шаг, куда ушла последняя деталь
+  const a = state.steps[i];
+  if (a.parts.length) { a.insertPath = a.partPaths?.[a.parts[0]] ?? null; a.camera = { ...(a.camera || {}), focus: a.parts[0] }; return into; }
+  const b = state.steps[into];
+  b.fasteners = [...(b.fasteners || []), ...(a.fasteners || [])];
+  b.checks = [...(b.checks || []), ...(a.checks || [])];
+  b.review = b.review || a.review;
+  state.steps.splice(i, 1);
+  return into > i ? into - 1 : into;
+}
+
+function movePart(pid, from, to) {
+  const a = state.steps[from], b = state.steps[to];
+  a.parts = a.parts.filter((p) => p !== pid); b.parts.push(pid);
+  b.partPaths = { ...(b.partPaths || {}), [pid]: a.partPaths?.[pid] ?? null };
+  if (a.partPaths) delete a.partPaths[pid];
+  if (!b.insertPath) b.insertPath = b.partPaths[b.parts[0]] ?? null;
+  const at = dropIfEmpty(from, to);
+  relabel(); markDirty(); select(at);
+  setStatus(`Деталь перенесена в шаг ${at + 1}`, 'ok');
+}
+
+function moveFastener(from, fi, to) {
+  const a = state.steps[from], b = state.steps[to];
+  const [f] = a.fasteners.splice(fi, 1);
+  const same = (b.fasteners || []).find((g) => g.name === f.name);
+  if (same) { same.partIds.push(...f.partIds); same.qty = same.partIds.length; same.partPaths = { ...same.partPaths, ...f.partPaths }; }
+  else (b.fasteners ||= []).push(f);
+  relabel(); markDirty(); select(to);
+  setStatus(`Крепёж перенесён в шаг ${to + 1}`, 'ok');
+}
+
+function reviewBox(s, el) {
+  const n = names();
+  const r = el(`<div class="review"><b>⚠ Нужно проверить: <span class="why"></span></b><div class="body"></div>
+    <button>Проверено, всё верно</button></div>`);
+  r.querySelector('.why').textContent = s.review;
+  const body = r.querySelector('.body');
+  const pairs = [];
+  for (const pid of stepParts(s)) for (const q of interOf(pid)) pairs.push(`${n[pid] || pid} ↔ ${n[q] || q}`);
+  if (pairs.length) {
+    const p = document.createElement('p'); p.textContent = 'В CAD эти детали заходят друг в друга (красные на модели):'; body.appendChild(p);
+    const ul = document.createElement('ul'); for (const t of pairs) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); } body.appendChild(ul);
+    const p2 = document.createElement('p');
+    p2.textContent = 'Обычно это посадка с натягом, резьба или неточная модель, и сборке не мешает. Посмотрите анимацию: если деталь ставится не оттуда, выберите направление ниже, при необходимости переставьте шаг. Затем нажмите «Проверено».';
+    body.appendChild(p2);
+  } else {
+    const p = document.createElement('p');
+    p.textContent = 'Studio не нашла прямого пути, по которому деталь можно поставить. Выберите направление ниже и проверьте порядок шагов.';
+    body.appendChild(p);
+  }
+  r.querySelector('button').onclick = () => {
+    s.review = null; markDirty(); updateInter(); renderSteps(); renderDetail();
+    const left = state.steps.filter((x) => x.review).length;
+    setStatus(left ? `Осталось проверить шагов: ${left}` : 'Все шаги проверены', 'ok');
+  };
+  return r;
+}
+
+function updateArrows() {
+  // стрелки «откуда приходит деталь» для текущего шага
+  while (arrows.children.length) { const a = arrows.children.pop(); a.traverse?.((m) => { m.geometry?.dispose(); m.material?.dispose(); }); }
+  const s = state.steps[state.sel]; if (!s || !modelRoot) return;
+  for (const pid of stepParts(s)) {
+    const path = pathOf(s, pid), c = partCenter[pid]; if (!path || !c) continue;
+    const v = new THREE.Vector3(...path[0]); const L = v.length(); if (L < 1e-6) continue;
+    const isFast = !s.parts.includes(pid);
+    const len = Math.max(L, modelSize * 0.12);
+    const origin = c.clone().add(v.clone().normalize().multiplyScalar(len));
+    const arrow = new THREE.ArrowHelper(v.clone().normalize().negate(), origin, len * 0.92, isFast ? 0xff8a1f : 0x1a8cff, len * 0.22, len * 0.12);
+    arrow.traverse((m) => { if (m.material) { m.material.depthTest = false; m.material.transparent = true; m.material.opacity = 0.85; } m.renderOrder = 10; });
+    arrows.add(arrow);
+  }
+}
+
+function nextReview() {
+  const n = state.steps.length;
+  for (let k = 1; k <= n; k++) { const j = (state.sel + k) % n; if (state.steps[j].review) { select(j); return; } }
 }
 
 function renderStepsKeepFocus() {
@@ -334,11 +547,12 @@ function showStats() {
 async function openProject(data, keepSel = false) {
   state.project = data; state.steps = structuredClone(data.steps); state.hints = structuredClone(data.hints);
   state.dirty = false; $('saveBtn').disabled = true;
-  for (const id of ['hintsBtn', 'replanBtn', 'exportBtn']) $(id).disabled = false;
+  for (const id of ['hintsBtn', 'replanBtn', 'exportBtn', 'sendBtn']) $(id).disabled = false;
   $('emptyState').hidden = true;
   if (!keepSel) state.sel = 0;
   await loadModel(data.id);
-  focusStep();
+  histReset();
+  focusStep(); updateInter(); updateArrows();
   renderSteps(); renderDetail(); showStats();
   localStorageSet('stark.lastProject', data.id);
   $('projectSelect').value = data.id;
@@ -412,11 +626,88 @@ $('playBtn').onclick = () => {
   select(0); $('playBtn').textContent = '■ Стоп';
   state.playing = setInterval(() => { if (state.sel >= state.steps.length - 1) { $('playBtn').click(); } else select(state.sel + 1); }, 2600);
 };
+$('undoBtn').onclick = () => histGo(-1);
+$('redoBtn').onclick = () => histGo(1);
+$('nextReviewBtn').onclick = nextReview;
 document.addEventListener('keydown', (e) => {
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); histGo(e.shiftKey ? 1 : -1); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); histGo(1); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); guarded(save, 'Сохранение…'); return; }
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); select(state.sel + 1); }
   if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); select(state.sel - 1); }
 });
+// ---------- передача на очки ----------
+const link = { status: null, addr: 0, timer: null };
+const dlg = $('linkDlg');
+
+function renderLink() {
+  const st = link.status; if (!st) return;
+  const paired = st.devices.some((d) => d.online);
+  $('linkDot').className = 'dot' + (paired ? ' paired' : st.running ? ' on' : '');
+  $('linkDot').title = paired ? 'Очки на связи' : st.running ? 'Передача включена, очки не подключены' : 'Передача выключена';
+  $('linkOff').hidden = st.running; $('linkOn').hidden = !st.running;
+  if (!st.running) return;
+  link.addr = Math.min(link.addr, st.urls.length - 1);
+  const sel = $('linkAddr');
+  sel.hidden = st.urls.length < 2;
+  if (sel.options.length !== st.urls.length) {
+    sel.innerHTML = ''; st.urls.forEach((u, k) => { const o = document.createElement('option'); o.value = k; o.textContent = u.replace('http://', 'адрес: '); sel.appendChild(o); });
+  }
+  sel.value = link.addr;
+  const qr = `/api/link/qr.svg?i=${link.addr}&k=${encodeURIComponent(st.pairUrls[link.addr])}`;
+  if ($('qrImg').dataset.src !== qr) { $('qrImg').src = qr; $('qrImg').dataset.src = qr; }
+  $('pairUrl').textContent = st.pairUrls[link.addr];
+  const c = st.current;
+  $('linkCurrent').innerHTML = c ? `На очки отправлено: <b></b><br><span class="muted"></span>` : '<span class="muted">Пакет ещё не отправлен.</span>';
+  if (c) { $('linkCurrent').querySelector('b').textContent = c.name; $('linkCurrent').querySelector('span').textContent = `версия ${c.version} · шагов ${c.steps} · ${c.sentAt.replace('T', ' ')}`; }
+  const dv = $('linkDevices'); dv.innerHTML = '';
+  if (!st.devices.length) dv.innerHTML = '<span class="muted">Очки ещё не подключались.</span>';
+  for (const d of st.devices) {
+    const row = document.createElement('div');
+    const got = c && d.version === c.version ? ' · <span class="ok">загрузили последнюю версию</span>' : d.version ? ` · загружена версия ${d.version}` : '';
+    row.innerHTML = `<b></b> <span class="muted"></span>${got}`;
+    row.querySelector('b').textContent = d.online ? '● ' + d.name : '○ ' + d.name;
+    row.querySelector('span').textContent = d.online ? '(на связи)' : `(был ${fmtAgo(d.secondsAgo)} назад)`;
+    dv.appendChild(row);
+  }
+}
+const fmtAgo = (s) => (s < 60 ? `${s} с` : s < 3600 ? `${Math.round(s / 60)} мин` : `${Math.round(s / 3600)} ч`);
+
+async function pollLink() {
+  try { link.status = await api('/api/link'); renderLink(); } catch { /* сервер перезапускается */ }
+}
+function openLink() {
+  pollLink(); dlg.showModal();
+}
+setInterval(pollLink, 3000); pollLink();
+$('linkAddr').onchange = (e) => { link.addr = +e.target.value; renderLink(); };
+$('linkBtn').onclick = openLink;
+$('linkStart').onclick = () => guarded(async () => { link.status = await api('/api/link/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); renderLink(); }, 'Включаю…');
+$('linkStop').onclick = () => guarded(async () => { link.status = await api('/api/link/stop', { method: 'POST' }); renderLink(); }, 'Выключаю…');
+$('linkReset').onclick = () => {
+  if (!confirm('Сделать новый QR-код? Уже подключённые очки потеряют доступ, их нужно будет подключить заново.')) return;
+  guarded(async () => { link.status = await api('/api/link/reset', { method: 'POST' }); renderLink(); }, 'Новый код…');
+};
+
+async function sendToGlasses() {
+  if (!state.project) { setStatus('Сначала откройте проект', 'err'); return; }
+  if (state.dirty) await save();
+  try {
+    const r = await api(`/api/projects/${state.project.id}/send`, { method: 'POST' });
+    link.status = r.link; renderLink();
+    const rev = state.steps.filter((s) => s.review).length;
+    setStatus(`Отправлено на очки: версия ${r.sent.version}` + (rev ? `. Внимание: не проверено шагов: ${rev}` : '') +
+      (r.warnings.length ? `. Предупреждения: ${r.warnings.join('; ')}` : ''), 'ok');
+    if (!r.link.devices.length && !dlg.open) dlg.showModal(); // очки ещё не подключали: показать QR
+  } catch (e) {
+    if (e.body?.errors) throw new Error('Не отправлено: ' + e.body.errors.join('; '));
+    throw e;
+  }
+}
+$('sendBtn').onclick = () => guarded(sendToGlasses, 'Отправка на очки…');
+$('linkSend').onclick = () => guarded(sendToGlasses, 'Отправка на очки…');
+
 window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
 
 (async () => {

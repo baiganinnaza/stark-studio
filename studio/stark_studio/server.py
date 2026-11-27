@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import link as L
 from . import project as P
 from .samples import write_sample_step
 
@@ -117,6 +118,64 @@ def export(pid: str):
     fname = f"{pid}.stark"
     return Response(blob, media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Stark-Warnings": str(len(warnings))})
+
+
+# ---------- передача на очки (Wi‑Fi + QR) ----------
+
+class LinkStart(BaseModel):
+    port: int | None = None
+
+
+@app.get("/api/link")
+def link_status():
+    return L.hub.status()
+
+
+@app.post("/api/link/start")
+def link_start(body: LinkStart | None = None):
+    try:
+        L.hub.start(port=body.port if body else None)
+    except OSError as e:
+        raise HTTPException(409, f"Порт {L.hub.port} занят или недоступен: {e.strerror or e}")
+    return L.hub.status()
+
+
+@app.post("/api/link/stop")
+def link_stop():
+    L.hub.stop()
+    return L.hub.status()
+
+
+@app.post("/api/link/reset")
+def link_reset():
+    L.hub.reset_token()
+    return L.hub.status()
+
+
+@app.get("/api/link/qr.svg")
+def link_qr(i: int = 0):
+    st = L.hub.status()
+    if not st["running"]:
+        raise HTTPException(409, "Передача на очки выключена")
+    urls = st["pairUrls"]
+    return Response(L.qr_svg(urls[min(max(i, 0), len(urls) - 1)]), media_type="image/svg+xml",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/projects/{pid}/send")
+def send_to_glasses(pid: str):
+    """Собрать .stark и сделать его текущим пакетом для очков. Очки подхватят его сами."""
+    data = _get(pid)
+    blob, errors, warnings = P.export(pid)
+    if blob is None:
+        return JSONResponse({"errors": errors, "warnings": warnings}, status_code=422)
+    if not L.hub.running:
+        try:
+            L.hub.start()
+        except OSError as e:
+            raise HTTPException(409, f"Не удалось включить передачу: {e.strerror or e}")
+    cur = L.hub.publish(blob, pid, data["name"], len(data["steps"]))
+    return {"sent": cur, "warnings": warnings, "link": L.hub.status()}
 
 
 app.mount("/", StaticFiles(directory=EDITOR_DIR, html=True), name="editor")

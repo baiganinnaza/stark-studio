@@ -94,15 +94,29 @@ Workflow `player-unity` (GameCI) открывает проект в настоя
    Там же Project Validation → Fix All (это источник истины для настроек SDK).
 4. Включить в XREAL-настройках трекинг рук и плоскостей (Hand Tracking, Plane Detection).
 5. File → Build Profiles → Android → Build And Run на Beam Pro. На Beam Pro должно быть приложение MyGlasses.
-6. Пакеты на устройство: `adb push product.stark /sdcard/Android/data/kz.stark.player/files/Packages/`
-   или через USB-проводник в ту же папку. Демо-редуктор вшит в сборку.
+6. Пакеты на устройство: по Wi‑Fi из Studio (ниже) или
+   `adb push product.stark /sdcard/Android/data/kz.stark.player/files/Packages/`. Демо-редуктор вшит в сборку.
+
+## Пакеты из Studio по Wi‑Fi (QR-код)
+
+1. В Studio: кнопка **QR** → «Включить передачу». Компьютер и Beam Pro в одной Wi‑Fi сети.
+2. Камерой Beam Pro отсканировать QR-код, открыть ссылку, нажать «Открыть в Stark Player».
+   Плеер запоминает Studio (повторно сканировать нужно только после «Новый QR» или смены IP компьютера).
+3. В Studio: **На очки**. Через 3 секунды пакет появляется в очках. Если модель уже стоит на столе,
+   она остаётся на месте и на том же шаге: удобно править шаги в Studio и сразу смотреть в очках.
+
+Что делает сборка: `StarkAndroidBuild` разрешает HTTP в локальной сети, добавляет разрешение INTERNET
+и регистрирует ссылку `stark://link` в манифесте (свой AndroidManifest.xml класть не нужно).
+`StudioLinkClient` добавляется к плееру сам. В редакторе Unity: вставьте адрес со страницы Studio
+(`http://IP:8041/s/…`) в поле **Editor Pairing Link** компонента `StudioLinkClient` и нажмите Play.
+Протокол: [spec/stark-link-v1.md](../spec/stark-link-v1.md).
 
 Если XREAL SDK потребует другую версию AR Foundation, поменяйте её в `Packages/manifest.json`:
 код использует только API, общие для AR Foundation 5.1 и 6.x.
 
 ## Что проверено, а что нужно проверить на очках
 
-Проверено здесь: ядро (25 тестов), компиляция всего рантайм-кода (Core, Device, Presentation,
+Проверено здесь: ядро (43 теста, вместе с протоколом связи со Studio), компиляция всего рантайм-кода (Core, Device, Presentation,
 адаптеры, App) против UnityEngine; API пакетов (glTFast, Input System, AR Foundation,
 XR Hands) заменялись заглушками по документации. В редакторе Unity проект ещё не открывался,
 сборка на Android не делалась (нет Unity в облаке), редакторский скрипт `StarkSceneBuilder`
@@ -118,6 +132,8 @@ XR Hands) заменялись заглушками по документаци�
 * Читаемость текста `TextMesh` на оптике, размер строк.
 * Привязки камеры `TrackedPoseDriver` (`<XRHMD>/centerEyePosition`) под XREAL.
   Если камера не двигается, заменить XR Origin на префаб из примеров XREAL SDK и назначить его в `XrRig`.
+* QR-код из Studio открывает плеер (ссылка `stark://link` в манифесте), HTTP к Studio не блокируется,
+  новая версия пакета подхватывается без потери места на столе.
 * Производительность на Beam Pro (цель 60 fps), шейдеры glTFast в сборке
   (если модель розовая/невидимая: добавить шейдеры glTFast в Always Included Shaders).
 

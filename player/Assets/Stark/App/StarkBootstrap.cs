@@ -47,6 +47,10 @@ namespace Stark.App
 
             DeviceServices services = useXr ? xrRig.Build() : simulatorRig.Build();
             if (player == null) player = new GameObject("Stark Player").AddComponent<StarkPlayer>();
+            // Связь со Stark Studio по Wi‑Fi (QR-код): добавляется сама, сцену пересоздавать не нужно.
+            var link = player.GetComponent<StudioLinkClient>();
+            if (link == null) link = player.gameObject.AddComponent<StudioLinkClient>();
+            link.player = player;
             player.Initialize(services);
         }
     }
