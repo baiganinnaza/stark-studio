@@ -5,6 +5,7 @@ venv/
 *.egg-info/
 .pytest_cache/
 workspace/
+workspace-link/
 *.stark
 !samples/*.stark
 samples/open/

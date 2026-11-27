@@ -67,3 +67,37 @@ footer { display: flex; justify-content: space-between; gap: 12px; padding: 5px 
   #viewerPane { order: -1; min-height: 45vh; }
 }
 #emptyState[hidden] { display: none; }
+
+/* --- проверка, направления, история --- */
+button.mini { font-size: 11px; padding: 1px 7px; margin-left: 6px; border-radius: 10px; }
+button.mini.warn { background: var(--warn-soft); color: var(--warn); border-color: #f0c879; }
+#detail .review p { margin: 4px 0; color: #6d4a00; }
+#detail .review ul { margin: 2px 0 4px; padding-left: 18px; color: #6d4a00; }
+#detail .review button { color: inherit; border-color: currentColor; padding: 1px 8px; background: #fff; }
+.dirgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.dirgrid button, #detail .fastener select, #detail .parts select { background: #fff; color: var(--text); border-color: var(--line); padding: 4px 6px; font-size: 12px; }
+.dirgrid button.on { background: var(--accent-soft); border-color: var(--accent); color: #0b5bb5; font-weight: 600; }
+.dirmeta { display: flex; gap: 8px; align-items: center; margin-top: 5px; font-size: 12px; color: var(--muted); }
+.dirmeta input { width: 80px !important; }
+.dirmeta .nodir { color: var(--err); }
+#detail .parts select { margin-left: auto; padding: 1px 4px; }
+#detail .parts label.inter span { color: var(--err); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6b7385; margin-left: 4px; vertical-align: middle; }
+.dot.on { background: #f5c518; } .dot.paired { background: #3ddc84; }
+/* --- окно передачи --- */
+dialog#linkDlg { border: none; border-radius: 12px; padding: 0; width: min(440px, calc(100vw - 32px)); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+dialog#linkDlg::backdrop { background: rgba(10,14,20,.45); }
+#linkDlg > div { padding: 4px 16px 16px; }
+#linkDlg .dlg-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+#linkDlg .x, #linkDlg .ghost2 { background: #fff; color: var(--text); border-color: var(--line); }
+#linkDlg .qr-wrap { display: flex; justify-content: center; padding: 10px 0 4px; }
+#linkDlg .qr-wrap img { width: 220px; height: 220px; image-rendering: pixelated; }
+#linkDlg select { background: #fff; color: var(--text); border-color: var(--line); width: 100%; }
+#linkDlg .how { padding-left: 20px; font-size: 13px; margin: 8px 0; }
+#linkDlg .addr { font-size: 11px; color: var(--muted); word-break: break-all; text-align: center; }
+#linkDlg .box { background: var(--bg); border-radius: 8px; padding: 8px 10px; margin-top: 8px; font-size: 13px; }
+#linkDlg .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+#linkDlg .ok { color: #2e7d32; } #linkDlg .muted { color: var(--muted); }
+/* на экранах с плотностью 2x (ноутбуки с Retina/HiDPI) холст не должен вылезать за свою колонку */
+#viewerPane { overflow: hidden; }
+#viewer canvas { display: block; width: 100% !important; height: 100% !important; }

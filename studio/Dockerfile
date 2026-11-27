@@ -5,5 +5,5 @@ COPY pyproject.toml ./
 COPY stark_studio ./stark_studio
 RUN pip install --no-cache-dir .
 ENV STARK_WORKSPACE=/data/projects
-EXPOSE 8040
+EXPOSE 8040 8041
 CMD ["stark-studio", "serve", "--host", "0.0.0.0", "--port", "8040"]

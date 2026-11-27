@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Stark.Core.Gestures;
 using Stark.Core.Layout;
+using Stark.Core.Link;
 using Stark.Core.Package;
 using Stark.Core.Session;
 using Stark.Core.Steps;
@@ -39,6 +40,8 @@ namespace Stark.Presentation
         public StepSequencer Steps { get; private set; }
         public ModelView Model { get; private set; }
         public float ModelScale { get; private set; } = 1f;
+        /// <summary>SHA-256 байтов загруженного пакета: StudioLinkClient сравнивает с тем, что отправила Studio.</summary>
+        public string LoadedSha256 { get; private set; }
         /// <summary>Последние распознанные жесты (для отладки и автотестов в редакторе).</summary>
         public event Action<GestureEvent> GestureRecognized;
 
@@ -112,7 +115,7 @@ namespace Stark.Presentation
         {
             if (_entries.Count == 0)
             {
-                Fail("Нет пакетов", $"Скопируйте .stark в {PackageSource.UserFolder}");
+                Fail("Нет пакетов", $"Отсканируйте QR-код в Stark Studio (кнопка «QR») или скопируйте .stark в {PackageSource.UserFolder}");
                 return;
             }
             var entry = _entries[_entryIndex % _entries.Count];
@@ -130,14 +133,35 @@ namespace Stark.Presentation
             }
         }
 
-        /// <summary>Загрузить пакет из байтов (также для тестов и будущей загрузки по QR/Wi-Fi).</summary>
-        public async Task LoadPackageAsync(byte[] bytes)
+        /// <summary>Загрузить пакет из байтов (также для тестов). После загрузки — поиск стола.</summary>
+        public Task LoadPackageAsync(byte[] bytes) => LoadPackageAsync(bytes, false);
+
+        /// <summary>
+        /// Загрузить пакет из байтов. keepPlacement: если модель уже стоит на столе, оставить её там,
+        /// с тем же поворотом, масштабом и номером шага (обновление из Studio по Wi‑Fi во время работы).
+        /// Битый пакет отклоняется до того, как текущая модель будет выгружена.
+        /// </summary>
+        public async Task LoadPackageAsync(byte[] bytes, bool keepPlacement)
         {
+            var pkg = StarkPackageLoader.Load(bytes);
+            bool stay = keepPlacement && _anchor != null && CurrentMode == Mode.Assembling && Steps != null;
+            int prevStep = stay ? Steps.CurrentIndex : 0;
+            float prevScale = stay ? ModelScale / _defaultScale : 1f;
+            float prevYaw = _yaw;
+
             SaveLog();
             CurrentMode = Mode.Loading;
-            var pkg = StarkPackageLoader.Load(bytes);
-            await Model.LoadAsync(pkg);
+            try
+            {
+                await Model.LoadAsync(pkg);
+            }
+            catch
+            {
+                CurrentMode = Mode.Error;
+                throw;
+            }
             if (this == null) return;
+            LoadedSha256 = StudioLink.Sha256Hex(bytes);
 
             Package = pkg;
             Steps = new StepSequencer(pkg);
@@ -152,12 +176,50 @@ namespace Stark.Presentation
             ModelScale = _defaultScale;
             _yaw = 0;
             _explodeOn = false;
+            _btnExplode.Label = "Разлёт";
             BuildFastenerLabels();
 
             if (Model.MissingNodes.Count > 0)
                 Debug.LogWarning($"[Stark] В model.glb нет узлов: {string.Join(", ", Model.MissingNodes)}");
             Debug.Log($"[Stark] Пакет «{pkg.Manifest.ProductName}»: {pkg.Parts.Count} деталей, {pkg.Steps.Count} шагов");
-            BeginPlacement();
+            if (!stay)
+            {
+                BeginPlacement();
+                return;
+            }
+
+            // Модель остаётся на том же якоре: только новая геометрия и шаги.
+            _yaw = prevYaw;
+            ModelScale = _defaultScale * prevScale;
+            _reticle.SetDiameter(Model.Radius * 2f * ModelScale);
+            SetFastenerLabelsActive(true);
+            ApplyTransform();
+            CurrentMode = Mode.Assembling;
+            _log?.Mark("placed", "reload");
+            _logStepStarted = true;
+            int target = Math.Max(0, Math.Min(prevStep, Steps.Count - 1));
+            if (target != Steps.CurrentIndex && Steps.GoTo(target, StepChangeReason.Jump))
+                return; // OnStepChanged уже записал шаг в журнал и обновил вид
+            _log?.EnterStep(Steps.CurrentIndex, StepChangeReason.Jump);
+            RefreshStep();
+        }
+
+        /// <summary>Строка состояния под подсказкой (связь со Studio и т.п.). Без модели — отдельное сообщение.</summary>
+        public void ShowStatus(string text)
+        {
+            if (_hint == null) return;
+            if (CurrentMode == Mode.Idle || CurrentMode == Mode.Error) ShowHintNearUser("Stark Studio", text);
+            else _hint.SetStatus(text);
+        }
+
+        public void ShowError(string title, string message) => Fail(title, message);
+
+        /// <summary>Перечитать папку пакетов и сделать текущим этот файл (для «следующий пакет»).</summary>
+        public void SelectPackageFile(string path)
+        {
+            _entries = PackageSource.List(Application.isEditor ? editorPackagePath : null, bundledPackages);
+            int i = _entries.FindIndex(e => string.Equals(e.Location, path, StringComparison.Ordinal));
+            _entryIndex = i >= 0 ? i : 0;
         }
 
         static string FirstLanguage(StarkPackage pkg)
