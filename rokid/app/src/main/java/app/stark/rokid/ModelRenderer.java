@@ -38,7 +38,7 @@ final class ModelRenderer implements GLSurfaceView.Renderer {
             "void main() {\n" +
             "  gl_Position = uMVP * vec4(aPos + uOffset, 1.0);\n" +
             "  float d = abs(dot(normalize(aNrm), uLight));\n" +
-            "  vShade = 0.30 + 0.70 * d;\n" +
+            "  vShade = 0.50 + 0.50 * d;\n" +
             "}\n";
     private static final String FS =
             "precision mediump float;\n" +
@@ -157,14 +157,14 @@ final class ModelRenderer implements GLSurfaceView.Renderer {
 
         StarkPackage pkg = scene.pkg;
         StarkPackage.Step cur = current < pkg.steps.size() ? pkg.steps.get(current) : null;
-        float pulse = 0.85f + 0.15f * (float) Math.sin(t * 4.0);
+        float pulse = 0.90f + 0.10f * (float) Math.sin(t * 4.0);
 
         // 1. Уже собранное: тускло
         for (GpuPart g : gpu) {
             int s = pkg.stepOf(g.partId);
             boolean done = s < current || (s < 0 && current > 0);
             if (cur == null) done = true;
-            if (done) draw(g, cur == null ? 0.55f : 0.30f, null);
+            if (done) draw(g, cur == null ? 0.60f : 0.16f, null);
         }
         if (cur == null) return;
         // 2. Текущий шаг: ярко, с анимацией установки
@@ -177,7 +177,7 @@ final class ModelRenderer implements GLSurfaceView.Renderer {
         GLES20.glDepthMask(false);
         for (GpuPart g : gpu) {
             if (pkg.stepOf(g.partId) == current)
-                draw(g, 0.38f, StepHud.insertOffset(cur.pathFor(g.partId), t));
+                draw(g, 0.45f, StepHud.insertOffset(cur.pathFor(g.partId), t));
         }
         GLES20.glDepthMask(true);
         GLES20.glDepthFunc(GLES20.GL_LESS);
@@ -226,8 +226,10 @@ final class ModelRenderer implements GLSurfaceView.Renderer {
         float aspect = vpW / (float) Math.max(1, vpH);
         float fovY = 32f;
         // Отступ, чтобы всё изделие помещалось и по узкой стороне
-        float fit = r / (float) Math.sin(Math.toRadians(fovY / 2)) * 1.08f;
-        if (aspect < 1) fit /= Math.max(0.55f, aspect);
+        // Сфера вокруг коробки с запасом, поэтому 0.9; на узком экране ограничивает горизонтальный угол
+        double half = Math.toRadians(fovY / 2);
+        if (aspect < 1) half = Math.atan(Math.tan(half) * aspect);
+        float fit = r / (float) Math.sin(half) * 0.9f;
         Matrix.perspectiveM(proj, 0, fovY, aspect, Math.max(0.001f, fit - r * 2.5f), fit + r * 3f);
 
         double yaw = Math.toRadians(35 + (autoRotate ? 28 * Math.sin(now * 0.45) : 0));

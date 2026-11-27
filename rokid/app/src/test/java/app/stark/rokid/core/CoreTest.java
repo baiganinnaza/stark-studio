@@ -71,6 +71,7 @@ public class CoreTest {
             }
         }
         assertTrue("крепёж шага показан с количеством", torque);
+        assertTrue(StepHud.of(p, 5, "ru").lines.contains("• Кронштейн ×2"));
         StepHud done = StepHud.of(p, 8, "ru");
         assertTrue(done.finished);
         assertEquals("Все 8 шагов выполнены", done.lines.get(0));

@@ -47,7 +47,7 @@ public final class StepHud {
 
         Map<String, Integer> main = new LinkedHashMap<>();
         for (String id : s.parts) {
-            String name = pkg.partName(id);
+            String name = baseName(pkg.partName(id));
             Integer c = main.get(name);
             main.put(name, c == null ? 1 : c + 1);
         }
@@ -64,6 +64,11 @@ public final class StepHud {
         if (s.tool != null && !s.tool.trim().isEmpty()) lines.add(clip("Инструмент: " + s.tool.trim(), LINE_MAX));
         for (String c : s.checks) if (c != null && !c.trim().isEmpty()) lines.add(clip("– " + c.trim(), LINE_MAX));
         return new StepHud("Шаг " + (s.index + 1) + " из " + n, headline, lines, false);
+    }
+
+    /** «Кронштейн:2» → «Кронштейн»: экземпляры одной детали показываются одной строкой с ×N. */
+    static String baseName(String name) {
+        return name.replaceFirst(":\\d+$", "");
     }
 
     static String torque(double nm) {
