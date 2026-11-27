@@ -68,3 +68,34 @@ jobs:
         with:
           name: rokid-screenshots
           path: rokid/ci/shots/
+
+  # Пререлиз на GitHub: прямая ссылка на APK и скриншоты (артефакты Actions удобно скачивать не везде).
+  publish:
+    needs: [build, emulator]
+    if: github.event_name != 'pull_request' && needs.build.result == 'success' && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: stark-rokid-apk
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: rokid-screenshots
+          path: shots
+      - name: Пререлиз rokid-v0.1.${{ github.run_number }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EMU: ${{ needs.emulator.result }}
+        run: |
+          TAG="rokid-v0.1.${{ github.run_number }}"
+          FILES="${{ needs.build.outputs.apk }}"
+          for f in shots/*.png; do [ -f "$f" ] && FILES="$FILES $f"; done
+          cat > notes.md <<NOTES
+          Stark для Rokid AI Glasses, сборка ${{ github.run_number }} из ветки \`${{ github.ref_name }}\` (${{ github.sha }}).
+          Проверка на эмуляторе 480×640: **${EMU}**. Установка: \`adb install -r ${{ needs.build.outputs.apk }}\`, подробнее в rokid/README.md.
+          NOTES
+          gh release create "$TAG" $FILES --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --prerelease --title "Stark для Rokid 0.1.${{ github.run_number }}" --notes-file notes.md
