@@ -8,6 +8,9 @@ on:
     paths: ["player/**", "samples/**", ".github/workflows/player-unity.yml"]
   pull_request:
     paths: ["player/**", "samples/**", ".github/workflows/player-unity.yml"]
+permissions:
+  contents: write   # публикация скриншотов/видео в ветку ci-media/player
+  checks: write
 jobs:
   unity:
     runs-on: ubuntu-latest
@@ -52,13 +55,26 @@ jobs:
         run: |
           sudo apt-get update -qq >/dev/null || true
           sudo apt-get install -y -qq ffmpeg >/dev/null || true
-          cd player/TestScreenshots/video 2>/dev/null || exit 0
-          sudo chown -R "$(id -u)" . || true
+          [ -d player/TestScreenshots/video ] || exit 0
+          sudo chown -R "$(id -u):$(id -g)" player/TestScreenshots
+          cd player/TestScreenshots/video
           for d in */; do
             name="${d%/}"
             ffmpeg -loglevel error -y -framerate 15 -i "$name/%05d.png" -c:v libx264 -pix_fmt yuv420p -vf "scale=960:-2" "../$name.mp4"
           done
           cd .. && rm -rf video && ls -la
+
+      - name: Опубликовать скриншоты и видео в ветку ci-media/player
+        if: always() && env.UNITY_LICENSE != ''
+        run: |
+          [ -d player/TestScreenshots ] || exit 0
+          out="$RUNNER_TEMP/media"; rm -rf "$out"; mkdir -p "$out"
+          cp -r player/TestScreenshots/. "$out/"
+          rm -rf "$out/video"
+          cd "$out"
+          git init -q -b media && git add -A
+          git -c user.name="stark-ci" -c user.email="ci@users.noreply.github.com" commit -q -m "Player screenshots/video for ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" media:ci-media/player
 
       - uses: actions/upload-artifact@v4
         if: always() && env.UNITY_LICENSE != ''
