@@ -1,0 +1,21 @@
+{
+    "name": "Stark.App",
+    "rootNamespace": "Stark.App",
+    "references": [
+        "Stark.Core",
+        "Stark.Device",
+        "Stark.Presentation",
+        "Stark.Adapters.XR",
+        "Stark.Adapters.Simulator",
+        "Unity.XR.Management"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

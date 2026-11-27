@@ -1,0 +1,22 @@
+{
+    "name": "Stark.Adapters.XR",
+    "rootNamespace": "Stark.Adapters.XR",
+    "references": [
+        "Stark.Core",
+        "Stark.Device",
+        "Stark.Adapters.Keyboard",
+        "Unity.XR.ARFoundation",
+        "Unity.XR.ARSubsystems",
+        "Unity.XR.CoreUtils",
+        "Unity.XR.Hands"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
